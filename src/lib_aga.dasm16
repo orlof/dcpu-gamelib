@@ -48,7 +48,7 @@ set z, 0
     jsr aga_detect_hardware
 
     set a, 0
-    set b, aga_screen_buffer_1
+    set b, aga_buffer_videoram_1
     hwi [aga_monitor]
 
     set a, 1
@@ -56,7 +56,7 @@ set z, 0
     hwi [aga_monitor]
 
     set a, 2
-    set b, aga_screen_palette_1
+    set b, aga_buffer_palette_1
     hwi [aga_monitor]
 
     set pc, pop
@@ -67,11 +67,11 @@ set z, 0
     set c, [aga_current_buffer]
 
     set a, 0
-    set b, [aga_screen_buffer + c]
+    set b, [aga_buffer_videoram + c]
     hwi [aga_monitor]
 
     set a, 2
-    set b, [aga_screen_palette + c]
+    set b, [aga_buffer_palette + c]
     hwi [aga_monitor]
 
     xor [aga_current_buffer], 1
@@ -82,7 +82,7 @@ set z, 0
 :aga_load_image
 ;----------------------------------------------------------------
     set y, [aga_current_buffer]
-    set y, [aga_screen_palette + y]
+    set y, [aga_buffer_palette + y]
 
     set a, 2
     set x, [sp + 1]
@@ -101,7 +101,7 @@ set z, 0
 :aga_buffer_clear
 ;----------------------------------------------------------------
     set a, [aga_current_buffer]
-    set a, [aga_screen_buffer + a]
+    set a, [aga_buffer_videoram + a]
 
     set b, a
     add b, 384
@@ -118,20 +118,113 @@ set z, 0
 
 ;----------------------------------------------------------------
 :aga_buffer_clone
+; copies palette and video ram
 ;----------------------------------------------------------------
     set a, [aga_current_buffer]
-    set i, [aga_screen_buffer + a]
+    set i, [aga_buffer_palette + a]
 
     set b, i
-    add b, 384
+    add b, 16 + 384
 
     xor a, 1
-    set j, [aga_screen_buffer + a]
+    set j, [aga_buffer_palette + a]
 
 :aga_buffer_clone__loop
     sti [i], [j]
     ifn i, b
         set pc, aga_buffer_clone__loop
+
+    set pc, pop
+
+;----------------------------------------------------------------
+:aga_set_pixel
+; (x, y, color)
+;----------------------------------------------------------------
+    set x, [sp + 3]
+    set y, [sp + 2]
+    jsr aga_videomemory_addr
+
+    set x, [sp + 3]
+    set y, [sp + 2]
+    jsr aga_pixel_bit
+
+    set c, [a]
+    shr c, 8
+    and c, 0xf
+
+    ife b, 0x80
+        set pc, aga_set_pixel__8
+
+    ifn c, [sp + 1]
+        ; if not bg -> set bit
+        set pc, aga_set_pixel__set
+
+    ; clear pixel
+    xor b, 0xffff
+    and [a], b
+
+    set pc, aga_set_pixel__return
+
+:aga_set_pixel__set
+    ; set pixel
+    bor [a], b
+
+:aga_set_pixel__return
+    set [sp], pop
+    set [sp], pop
+    set [sp], pop
+
+    set pc, pop
+
+:aga_set_pixel__8
+    ife c, [sp + 1]
+        ; if bg -> noop
+        set pc, aga_set_pixel__return
+
+    set b, [a]
+    and b, 0xf000
+    shr b, 4
+
+    set c, [a]
+    and c, 0x0f00
+    shl c, 4
+
+    and [a], 0x00FF
+    bor [a], b
+    bor [a], c
+
+    xor [a], 0x7f
+
+    set pc, aga_set_pixel__return
+
+;----------------------------------------------------------------
+:aga_pixel_bit
+; fastcall: x, y -> b
+;----------------------------------------------------------------
+    set b, 0x80
+
+    and x, 1
+    shl x, 2
+    shr b, x
+
+    and y, 3
+    shr b, y
+
+    set pc, pop
+
+;----------------------------------------------------------------
+:aga_videomemory_addr
+; fastcall: x, y -> a
+;----------------------------------------------------------------
+    set a, [aga_current_buffer]
+    set a, [aga_buffer_videoram + a]
+
+    shr y, 2
+    shl y, 5
+    add a, y
+
+    shr x, 1
+    add a, x
 
     set pc, pop
 
@@ -205,13 +298,13 @@ set z, 0
     dat 0xFCFC, 0x0303, 0xFCFC, 0xC3C3, 0xFCFC, 0x3333, 0xFCFC, 0xF3F3
     dat 0xFCFC, 0x0F0F, 0xFCFC, 0xCFCF, 0xFCFC, 0x3F3F, 0xFCFC, 0xFFFF
 
-:aga_screen_buffer dat aga_screen_buffer_0, aga_screen_buffer_1
-:aga_screen_palette dat aga_screen_palette_0, aga_screen_palette_1
+:aga_buffer_videoram dat aga_buffer_videoram_0, aga_buffer_videoram_1
+:aga_buffer_palette dat aga_buffer_palette_0, aga_buffer_palette_1
 
-:aga_screen_palette_0
+:aga_buffer_palette_0
     dat 0x0000, 0x000a, 0x00a0, 0x00aa, 0x0a00, 0x0a0a, 0x0a50, 0x0aaa
     dat 0x0555, 0x055f, 0x05f5, 0x05ff, 0x0f55, 0x0f5f, 0x0ff5, 0x0fff
-:aga_screen_buffer_0
+:aga_buffer_videoram_0
     dat 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
     dat 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
     dat 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
@@ -230,10 +323,10 @@ set z, 0
     dat 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
     dat 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 
-:aga_screen_palette_1
+:aga_buffer_palette_1
     dat 0x0000, 0x000a, 0x00a0, 0x00aa, 0x0a00, 0x0a0a, 0x0a50, 0x0aaa
     dat 0x0555, 0x055f, 0x05f5, 0x05ff, 0x0f55, 0x0f5f, 0x0ff5, 0x0fff
-:aga_screen_buffer_1
+:aga_buffer_videoram_1
     dat 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
     dat 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
     dat 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
